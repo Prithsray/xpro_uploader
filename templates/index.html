@@ -1,0 +1,233 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Upload Excel File</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles/style.css') }}">
+    <style>
+        .status-indicator {
+            display: inline-block;
+            width: 17px;
+            height: 17px;
+            border-radius: 50%;
+            margin-left: 5px;
+        }
+        .processed {
+            background-color: red;
+        }
+        .not-processed {
+            background-color: green;
+        }
+    </style>
+</head>
+<body>
+    <h2>Upload Excel File</h2>
+    <form id="excelForm" enctype="multipart/form-data">
+        <input type="file" id="excelFile" name="excelFile" accept=".xlsx, .xls">
+        <button type="submit">Process Excel</button>
+    </form>
+    <a href="#" id="create-grn-button" class="button-link">Create GRN</a>
+    <!-- <a href="#" id="download-and-refresh">Download & Refresh</a> -->
+
+    <!-- Popup container -->
+    <div id="popup">
+        <div class="popup-content">
+            <p><span class="loader"></span> Please wait...</p>
+        </div>
+    </div>
+
+    <!-- Message box container -->
+    <div id="message-box" class="message-box">
+        <div class="message-content">
+            <p id="message-text"></p>
+            <button id="message-close" class="message-close-button">Close</button>
+        </div>
+    </div>
+
+    <div id="error-modal" style="display: none; position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); background-color: white; border: 1px solid #ccc; padding: 20px; box-shadow: 0 0 10px rgba(0,0,0,0.1); z-index: 1000;">
+        <h3>Error</h3>
+        <p id="error-message"></p>
+        <button id="close-error-modal">Close</button>
+    </div>
+
+    <h2>Inserted Data</h2>
+    <div class="button-wrapper">
+        <a href="#" id="download-and-refresh">Download & Refresh</a>
+    </div>
+    <!-- Table container -->
+    <div class="table-container" id="data-table-container">
+      
+        <table id="data-table">
+            <!-- Table content will be dynamically inserted here -->
+        </table>
+    </div>
+
+    <script>
+       function showMessage(message, isError = false) {
+    const messageBox = document.getElementById('message-box');
+    const messageText = document.getElementById('message-text');
+
+    // Convert newlines to <br> tags for HTML display
+    messageText.innerHTML = message.replace(/\n/g, '<br>');
+
+    messageBox.style.display = 'block';
+
+    if (isError) {
+        messageBox.style.backgroundColor = '#f8d7da'; // Light red background for errors
+        messageText.style.color = '#721c24'; // Dark red text for errors
+    } else {
+        messageBox.style.backgroundColor = '#d4edda'; // Light green background for success
+        messageText.style.color = '#155724'; // Dark green text for success
+    }
+}
+        
+        document.getElementById('message-close').addEventListener('click', function() {
+            document.getElementById('message-box').style.display = 'none';
+        });
+        
+        document.getElementById('excelForm').addEventListener('submit', function(event) {
+            event.preventDefault();
+            let formData = new FormData();
+            formData.append('excelFile', document.getElementById('excelFile').files[0]);
+        
+            // Show the popup
+            document.getElementById('popup').style.display = 'block';
+        
+            fetch('/upload', {
+                method: 'POST',
+                body: formData
+            }).then(response => {
+                if (!response.ok) {
+                    throw new Error('500 : Internal Server Error');
+                }
+                return response.json();
+            }).then(data => {
+                if (data.message) {
+                    console.log(data.message)
+                    showMessage(data.message);
+                } else {
+                    showMessage(data.error, true);
+                }
+                fetchData();
+            }).catch(error => {
+                showMessage('Error uploading file: ' + error.message, true);
+            }).finally(() => {
+                // Hide the popup
+                document.getElementById('popup').style.display = 'none';
+            });
+        });
+        
+        document.getElementById('create-grn-button').addEventListener('click', function(event) {
+            event.preventDefault();
+        
+            // Show the popup
+            document.getElementById('popup').style.display = 'block';
+
+            fetch('/process_grn')
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error('500 : Internal Server Error');
+                    }
+                    return response.text(); // Assuming the server returns a plain text response
+                })
+                .then(data => {
+                    showMessage('Create GRN process executed Successfully. Check the GRN status tab for more info');
+                    fetchData(); // Fetch data after processing is completed
+                })
+                .catch(error => {
+                    showMessage('Error during GRN creation: ' + error.message, true);
+                })
+                .finally(() => {
+                    // Hide the popup
+                    document.getElementById('popup').style.display = 'none';
+                });
+        });
+
+        document.getElementById('download-and-refresh').addEventListener('click', function(event) {
+    event.preventDefault();
+    
+    fetch('/download_table')
+        .then(response => {
+            if (!response.ok) {
+                throw new Error('500 : Internal Server Error');
+            }
+            return response.blob(); // Get the response as a blob
+        })
+        .then(blob => {
+            // Create a temporary link element for download
+            const link = document.createElement('a');
+            const url = URL.createObjectURL(blob);
+            link.href = url;
+            link.download = 'report.xlsx';
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            URL.revokeObjectURL(url); // Clean up the URL object
+
+            // Refresh the page
+            window.location.reload(); // Reload the page
+        })
+        .catch(error => {
+            showMessage('Error downloading file: ' + error.message, true);
+        });
+});
+
+        
+        // Function to fetch and display data
+        function fetchData() {
+            fetch('/data')
+                .then(response => response.json())
+                .then(data => {
+                    let table = document.getElementById('data-table');
+                    table.innerHTML = '';
+        
+                    // Define columns to be displayed with 'Status' as the first column
+                    let headers = ['Status', 'Sl. No.', 'DateTime', 'Production Order', 'Material Code', 'DOCUMENT DATE', 
+                                   'POSTING DATE', 'MVT. TYPE', 'DOC HEADER TEXT', 'QTY.', 'UoM', 'Plant', 
+                                   'Storage Location', 'Batch', 'Text', 'MFG Date', 'SHIFT', 'IN CHARGE', 
+                                   'START HRS', 'END HRS', 'CORE NO', 'NON STD WEIGHT', 'ROLL 2 SIGMA %', 
+                                   'STATUS', 'DOWNTIME', 'REJECTION TYPE', 'TECHNICIAN','CHILD ROLL GSM','CHILD ROLL LENGTH','OUTPUT MICRON','CHILD ROLL OD','GROSS WEIGHT',
+                                   'NUMBER OF JOINTS','CUSTOMER DESCRIPTION','MATERIAL DOCUMENT YEAR', 'MATERIAL DOCUMENT NO.','GRN STATUS'];
+        
+                    // Create table headers
+                    let headerRow = table.insertRow();
+                    headers.forEach(header => {
+                        let th = document.createElement('th');
+                        th.textContent = header;
+                        headerRow.appendChild(th);
+                    });
+        
+                    // Populate table rows with status column first
+                    data.forEach(row => {
+                        let tr = table.insertRow();
+        
+                        // Determine the status indicator
+                        let materialDocNo = row[headers.indexOf('MATERIAL DOCUMENT NO.')];
+                        let materialDocYear = row[headers.indexOf('MATERIAL DOCUMENT YEAR')];
+                        let statusClass = (materialDocNo && materialDocYear) ? 'processed' : 'not-processed';
+        
+                        // Add status indicator cell first
+                        let statusCell = tr.insertCell();
+                        let indicator = document.createElement('span');
+                        indicator.className = `status-indicator ${statusClass}`;
+                        statusCell.appendChild(indicator);
+        
+                        // Add other cells
+                        for (let i = 0; i < headers.length - 1; i++) {
+                            let cell = row[i] || ''; // Default to an empty string if the cell is undefined
+                            let td = tr.insertCell();
+                            td.textContent = cell;
+                        }
+                    });
+                })
+                .catch(error => {
+                    console.error('Error fetching data:', error);
+                });
+        }
+        
+        // Initial fetch to populate the table
+        fetchData();
+    </script>
+</body>
+</html>
